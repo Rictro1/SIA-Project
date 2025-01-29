@@ -6,6 +6,20 @@
 
 - The database file is located in a file named "database"
 
+### ID and Password Logins Details
+
+# Admin
+-  ID : 92701
+-  Password : admin
+
+# Dosen
+- ID : 1102001
+- Password : dosen
+
+# Mahasiswa
+- ID : 23451024
+- Password : eric321
+
 ### Note
 
 - Any data in the database is only an example, and not real data

@@ -1,0 +1,391 @@
+<?php
+session_start();
+include '../database/koneksi.php';
+
+if (!isset($_SESSION['dosen_id'])) {
+    header("Location: login.php");
+    exit;
+}
+
+$dosen_id = $_SESSION['dosen_id'];
+$dosen_name = $_SESSION['dosen_name'];
+$success_message = "";
+
+$semester = isset($_POST['semester']) ? $_POST['semester'] : '';
+$kelas = isset($_POST['kelas']) ? $_POST['kelas'] : '';
+$matkul_id = isset($_POST['matkul_id']) ? $_POST['matkul_id'] : '';
+$students = [];
+
+if ($semester && $kelas && $matkul_id) {
+    $queryStudents = "SELECT DISTINCT dm.mhs_id, dm.mhs_name, mm.matkul_id, mm.matkul_name
+                      FROM data_mhs dm
+                      JOIN mhs_matkul mm ON dm.mhs_id = mm.mhs_id
+                      WHERE mm.dosen_id = ? AND dm.semester = ? AND dm.kelas = ? AND mm.matkul_id = ?
+                      ORDER BY dm.mhs_name";
+    $stmtStudents = $conn->prepare($queryStudents);
+    $stmtStudents->bind_param("iiss", $dosen_id, $semester, $kelas, $matkul_id);
+    $stmtStudents->execute();
+    $resultStudents = $stmtStudents->get_result();
+    $students = $resultStudents->fetch_all(MYSQLI_ASSOC);
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_absensi'])) {
+    $pertemuan = $_POST['pertemuan'];
+
+    foreach ($_POST['status'] as $mhs_id => $status) {
+        $matkul_id = $_POST['matkul_id'][$mhs_id];
+        $matkul_name = $_POST['matkul_name'][$mhs_id];
+        $mhs_name = $_POST['mhs_name'][$mhs_id];
+
+        $queryTotalAbsen = "SELECT COUNT(*) FROM absensi WHERE mhs_id = ? AND matkul_id = ? AND status = 'Hadir'";
+        $stmtTotalAbsen = $conn->prepare($queryTotalAbsen);
+        $stmtTotalAbsen->bind_param("is", $mhs_id, $matkul_id);
+        $stmtTotalAbsen->execute();
+        $stmtTotalAbsen->bind_result($total_absen);
+        $stmtTotalAbsen->fetch();
+        $stmtTotalAbsen->close();
+
+        if ($status == 'Hadir') {
+            $total_absen++;
+        }
+
+        $nilai = 0;
+        if ($total_absen == 16) {
+            $nilai = 100;
+        } elseif ($total_absen >= 14) {
+            $nilai = 90;
+        } elseif ($total_absen >= 12) {
+            $nilai = 80;
+        }
+
+        $stmt = $conn->prepare("INSERT INTO absensi (mhs_id, mhs_name, matkul_id, matkul_name, dosen_id, dosen_name, pertemuan, status, total_absen, nilai)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("isisssisii", $mhs_id, $mhs_name, $matkul_id, $matkul_name, $dosen_id, $dosen_name, $pertemuan, $status, $total_absen, $nilai);
+        $stmt->execute();
+    }
+    $success_message = "Data absensi berhasil disimpan!";
+}
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Input Absensi</title>
+    <link rel="stylesheet" href="../css/main.css">
+    <link rel="stylesheet" href="../css/alert.css">
+    <script type="text/javascript" src="../js/app.js" defer></script>
+    <style>
+      .absen-input {
+        width: 80%;
+        margin: 0 auto;
+        padding: 30px;
+        background-color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        animation: fadeSlideIn 0.8s ease-out forwards;
+        opacity: 0;
+        transform: translateY(50px);
+        color: var(--base-clr);
+      }
+
+      @keyframes fadeSlideIn {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+      .header {
+        border-bottom: 2px solid black;
+        margin-bottom: 20px;
+        padding-bottom: 20px;
+        background: linear-gradient( #bdbd0c, #F25C00);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+      }
+
+      h1 {
+        margin: 0;
+      }
+
+      .filter-section {
+        margin: 30px 0;
+      }
+
+      .filter-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      .filter-item {
+        flex: 1;
+        min-width: 200px;
+      }
+
+      input, select, button {
+        width: 80%;
+        padding: 12px;
+        margin-top: 5px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        font-size: 16px;
+      }
+
+      .absensi-form {
+        margin-top: 30px;
+        background-color: #fff;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+      }
+
+      .absensi-form h2 {
+        border-bottom: 2px solid black;
+        margin-bottom: 20px;
+        padding-bottom: 20px;
+        background: linear-gradient(to right, #bdbd0c, #F25C00);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .absensi-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        animation: fadeInUp 0.8s ease-out;
+      }
+
+      .absensi-table th, .absensi-table td {
+        padding: 12px;
+        text-align: left;
+        border: 1px solid #ddd;
+      }
+
+      .absensi-table th {
+        background-color: #F25C00;
+      }
+
+      .submit-button {
+        background: linear-gradient(to right, #bdbd0c, #F25C00);
+        color: white;
+        padding: 12px 20px;
+        border: none;
+        border-radius: 5px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        margin: 20px;
+        text-decoration: none;
+      }
+
+      .submit-button:hover {
+        background: linear-gradient(to right,rgb(213, 213, 34),rgb(255, 200, 0));
+        transform: scale(1.05);
+      }
+
+      .submit-button::after {
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: -100%;
+        background: rgba(255, 255, 255, 0.2);
+        transition: all 0.3s ease;
+      }
+
+      .submit-button:hover::after {
+        left: 100%;
+      }
+
+      .no-data {
+        text-align: center;
+        margin-top: 50px;
+        font-size: 18px;
+        color: #ff5722;
+      }
+
+    </style>
+</head>
+<body>
+<nav id="sidebar">
+    <ul>
+      <li>
+        <img src="../img/kaputama.png">
+        <span class="logo">SIA Kaputama</span>
+        <button onclick=toggleSidebar() id="toggle-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed"><path d="m313-480 155 156q11 11 11.5 27.5T468-268q-11 11-28 11t-28-11L228-452q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l184-184q11-11 27.5-11.5T468-692q11 11 11 28t-11 28L313-480Zm264 0 155 156q11 11 11.5 27.5T732-268q-11 11-28 11t-28-11L492-452q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l184-184q11-11 27.5-11.5T732-692q11 11 11 28t-11 28L577-480Z"/></svg>
+        </button>
+      </li>
+      <li>
+        <a href="main.php">
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed"><path d="M240-200h120v-200q0-17 11.5-28.5T400-440h160q17 0 28.5 11.5T600-400v200h120v-360L480-740 240-560v360Zm-80 0v-360q0-19 8.5-36t23.5-28l240-180q21-16 48-16t48 16l240 180q15 11 23.5 28t8.5 36v360q0 33-23.5 56.5T720-120H560q-17 0-28.5-11.5T520-160v-200h-80v200q0 17-11.5 28.5T400-120H240q-33 0-56.5-23.5T160-200Zm320-270Z"/></svg>
+          <span>Dashboard</span>
+        </a>
+      </li>
+      <li>
+        <a href="account.php">
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed"><path d="M480-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47ZM160-240v-32q0-34 17.5-62.5T224-378q62-31 126-46.5T480-440q66 0 130 15.5T736-378q29 15 46.5 43.5T800-272v32q0 33-23.5 56.5T720-160H240q-33 0-56.5-23.5T160-240Zm80 0h480v-32q0-11-5.5-20T700-306q-54-27-109-40.5T480-360q-56 0-111 13.5T260-306q-9 5-14.5 14t-5.5 20v32Zm240-320q33 0 56.5-23.5T560-640q0-33-23.5-56.5T480-720q-33 0-56.5 23.5T400-640q0 33 23.5 56.5T480-560Zm0-80Zm0 400Z"/></svg>
+          <span>Account</span>
+        </a>
+      </li>
+      <li class="active">
+        <a href="input-absen.php">
+        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#F3F3F3"><path d="M80-160v-112q0-33 17-62t47-44q51-26 115-44t141-18q30 0 58.5 3t55.5 9l-70 70q-11-2-21.5-2H400q-71 0-127.5 17T180-306q-9 5-14.5 14t-5.5 20v32h250l80 80H80Zm542 16L484-282l56-56 82 82 202-202 56 56-258 258ZM400-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47Zm10 240Zm-10-320q33 0 56.5-23.5T480-640q0-33-23.5-56.5T400-720q-33 0-56.5 23.5T320-640q0 33 23.5 56.5T400-560Zm0-80Z"/></svg>
+          <span>Input Absen</span>
+        </a>
+      </li>
+      <li>
+        <a href="input_khs.php">
+        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#F3F3F3"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z"/></svg>
+          <span>Input Nilai</span>
+        </a>
+      </li>
+      <li>
+        <a href="fixexam-list.php">
+        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#F3F3F3"><path d="M360-240h440v-107H360v107ZM160-613h120v-107H160v107Zm0 187h120v-107H160v107Zm0 186h120v-107H160v107Zm200-186h440v-107H360v107Zm0-187h440v-107H360v107ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Z"/></svg>
+          <span>List Ujian Perbaiki</span>
+        </a>
+      </li>
+      <li>
+        <a href="onexam-list.php">
+        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#F3F3F3"><path d="M360-240h440v-107H360v107ZM160-613h120v-107H160v107Zm0 187h120v-107H160v107Zm0 186h120v-107H160v107Zm200-186h440v-107H360v107Zm0-187h440v-107H360v107ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Z"/></svg>
+          <span>List Ujian Susulan</span>
+        </a>
+      </li>
+      <li>
+        <a href="../index.php?logout=true">
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#000000"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h280v80H200Zm440-160-55-58 102-102H360v-80h327L585-622l55-58 200 200-200 200Z"/></svg>
+          <span>Sign Out</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+    <div class="absen-input">
+        <header class="header">
+            <h1>Input Absensi</h1>
+        </header>
+
+        <div class="filter-section">
+            <form method="POST" class="filter-form">
+                <div class="filter-item">
+                    <label for="semester">Semester:</label>
+                    <input type="number" name="semester" id="semester" value="<?= $semester ?>" required>
+                </div>
+
+                <div class="filter-item">
+                    <label for="kelas">Kelas:</label>
+                    <input type="text" name="kelas" id="kelas" value="<?= $kelas ?>" required>
+                </div>
+
+                <div class="filter-item">
+                    <label for="matkul_id">Mata Kuliah:</label>
+                    <select name="matkul_id" id="matkul_id" required>
+                        <option value="">Pilih Mata Kuliah</option>
+                        <?php
+                        
+                        $queryMatkul = "SELECT DISTINCT mm.matkul_id, mm.matkul_name
+                                        FROM mhs_matkul mm
+                                        WHERE mm.dosen_id = ?";
+                        $stmtMatkul = $conn->prepare($queryMatkul);
+                        $stmtMatkul->bind_param("i", $dosen_id);
+                        $stmtMatkul->execute();
+                        $resultMatkul = $stmtMatkul->get_result();
+                        while ($row = $resultMatkul->fetch_assoc()) {
+                            $selected = ($row['matkul_id'] == $matkul_id) ? 'selected' : '';
+                            echo "<option value=\"{$row['matkul_id']}\" $selected>{$row['matkul_name']}</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="filter-item">
+                    <button type="submit" name="filter" class="submit-button">Filter</button>
+                </div>
+            </form>
+        </div>
+
+       
+        <?php if (!empty($students)): ?>
+            <div class="absensi-form">
+                <form method="POST">
+                    <h2>Daftar Mahasiswa</h2>
+
+                    <?php if ($success_message): ?>
+                      <div class="succes-card">
+                          <svg class="succes-wave" viewBox="0 0 1440 320" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M0,256L11.4,240C22.9,224,46,192,69,192C91.4,192,114,224,137,234.7C160,245,183,235,206,213.3C228.6,192,251,160,274,149.3C297.1,139,320,149,343,181.3C365.7,213,389,267,411,282.7C434.3,299,457,277,480,250.7C502.9,224,526,192,549,181.3C571.4,171,594,181,617,208C640,235,663,277,686,256C708.6,235,731,149,754,122.7C777.1,96,800,128,823,165.3C845.7,203,869,245,891,224C914.3,203,937,117,960,112C982.9,107,1006,181,1029,197.3C1051.4,213,1074,171,1097,144C1120,117,1143,107,1166,133.3C1188.6,160,1211,224,1234,218.7C1257.1,213,1280,139,1303,133.3C1325.7,128,1349,192,1371,192C1394.3,192,1417,128,1429,96L1440,64L1440,320L1428.6,320C1417.1,320,1394,320,1371,320C1348.6,320,1326,320,1303,320C1280,320,1257,320,1234,320C1211.4,320,1189,320,1166,320C1142.9,320,1120,320,1097,320C1074.3,320,1051,320,1029,320C1005.7,320,983,320,960,320C937.1,320,914,320,891,320C868.6,320,846,320,823,320C800,320,777,320,754,320C731.4,320,709,320,686,320C662.9,320,640,320,617,320C594.3,320,571,320,549,320C525.7,320,503,320,480,320C457.1,320,434,320,411,320C388.6,320,366,320,343,320C320,320,297,320,274,320C251.4,320,229,320,206,320C182.9,320,160,320,137,320C114.3,320,91,320,69,320C45.7,320,23,320,11,320L0,320Z" fill-opacity="1"></path>
+                          </svg>
+                          <div class="succes-icon-container">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" stroke-width="0" fill="currentColor" stroke="currentColor" class="succes-icon">
+                                  <path d="M256 48a208 208 0 1 1 0 416 208 208 0 1 1 0-416zm0 464A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209c9.4-9.4 9.4-24.6 0-33.9s-24.6-9.4-33.9 0l-111 111-47-47c-9.4-9.4-24.6-9.4-33.9 0s-9.4 24.6 0 33.9l64 64c9.4 9.4 24.6 9.4 33.9 0L369 209z"></path>
+                              </svg>
+                          </div>
+                          <div class="succes-message-text-container">
+                              <p class="succes-message-text"><?php echo $success_message; ?></p>
+                          </div>
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15 15" stroke-width="0" fill="none" stroke="currentColor" class="succes-cross-icon">
+                              <path fill="currentColor" d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" clip-rule="evenodd" fill-rule="evenodd"></path>
+                          </svg>
+                      </div>
+                      <?php endif; ?>
+
+                    <div class="form-group">
+                        <label for="pertemuan">Pertemuan Ke:</label>
+                        <input type="number" name="pertemuan" id="pertemuan" min="1" max="16" required>
+                    </div>
+
+                    <table class="absensi-table">
+                        <thead>
+                            <tr>
+                                <th>ID Mahasiswa</th>
+                                <th>Nama Mahasiswa</th>
+                                <th>Mata Kuliah</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($students as $student): ?>
+                                <tr>
+                                    <td><?= $student['mhs_id'] ?></td>
+                                    <td><?= $student['mhs_name'] ?></td>
+                                    <td><?= $student['matkul_name'] ?></td>
+                                    <td>
+                                        <select name="status[<?= $student['mhs_id'] ?>]">
+                                            <option value="Hadir">Hadir</option>
+                                            <option value="Alpha">Alpha</option>
+                                            <option value="Izin">Izin</option>
+                                            <option value="Sakit">Sakit</option>
+                                        </select>
+                                        <input type="hidden" name="mhs_name[<?= $student['mhs_id'] ?>]" value="<?= $student['mhs_name'] ?>">
+                                        <input type="hidden" name="matkul_id[<?= $student['mhs_id'] ?>]" value="<?= $student['matkul_id'] ?>">
+                                        <input type="hidden" name="matkul_name[<?= $student['mhs_id'] ?>]" value="<?= $student['matkul_name'] ?>">
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+
+                    <div class="form-group">
+                        <button type="submit" name="submit_absensi" class="submit-button">Simpan Absensi</button>
+                    </div>
+                </form>
+            </div>
+        <?php else: ?>
+            <div class="no-data">
+                <p>Data mahasiswa tidak ditemukan. Silakan pilih filter yang sesuai.</p>
+            </div>
+        <?php endif; ?>
+    </div>
+</body>
+</html>
